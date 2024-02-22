@@ -5,16 +5,16 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"log/slog"
 	"net"
+	"os"
 	"time"
 )
 
 func main() {
 	// load tls configuration
-	cert, err := tls.LoadX509KeyPair("../Drawbridge/cmd/reverse_proxy/ca/server-cert.crt", "../Drawbridge/cmd/reverse_proxy/ca/server-key.key")
+	cert, err := tls.LoadX509KeyPair("./mtls/emissary-mtls-tcp.crt", "./mtls/emissary-mtls-tcp.key")
 	if err != nil {
 		panic(err)
 	}
@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if caCertPEM, err := ioutil.ReadFile("../Drawbridge/cmd/reverse_proxy/ca/ca.crt"); err != nil {
+	if caCertPEM, err := os.ReadFile("../Drawbridge/cmd/reverse_proxy/ca/ca.crt"); err != nil {
 		panic(err)
 	} else if ok := certPool.AppendCertsFromPEM(caCertPEM); !ok {
 		panic("invalid cert in CA PEM")
