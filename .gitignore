@@ -19,3 +19,7 @@
 
 # Go workspace file
 go.work
+
+mtls/*.key
+mtls/*.pem
+mtls/*.crt
