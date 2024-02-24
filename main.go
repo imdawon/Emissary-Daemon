@@ -40,6 +40,14 @@ func main() {
 		log.Fatal(message)
 	}
 
+	fmt.Println("Emissary is trying to read the CA Certificate file...")
+	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/ca.crt") {
+		message := fmt.Sprintf(`The "ca.crt" file is missing from the "%s" folder, which should be next to this program.
+		To generate this file, please log into the Drawbridge Dashboard and click the "Generate" button.
+		Once that is done, please place those files into the "put_certificates_and_key_from_drawbridge_here" folder and run Emissary again.`, certificatesAndKeysFolderName)
+		log.Fatal(message)
+	}
+
 	fmt.Println("Emissary is trying to load Certificate and Key file for connecting to Drawbridge...")
 	// load tls configuration
 	cert, err := tls.LoadX509KeyPair("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt", "./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key")
@@ -88,12 +96,12 @@ func main() {
 			// connect to drawbridge on the port lsitening for the actual service
 			conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeLocationResponse, tlsConfig)
 			if err != nil {
-				fmt.Errorf("Failed connecting to Drawbridge mTLS TCP server: ", err)
+				fmt.Errorf("Failed connecting to Drawbridge mTLS TCP server: %s", err)
 				return
 			}
 			defer conn.Close()
 
-			slog.Debug(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
+			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
 			// Copy data back and from client and server.
 			go io.Copy(conn, clientConn)
 			io.Copy(clientConn, conn)
