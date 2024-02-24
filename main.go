@@ -27,7 +27,7 @@ func main() {
 	fmt.Println("Emissary is trying to read the Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt") {
 		message := fmt.Sprintf(`The "emissary-mtls-tcp.crt" file is missing from the "%s" folder, which should be next to this program.
-		To generate this file, please log into the Drawbridge Dashboard and click the "Generate Emissary Client Certificate and Key Files" button.
+		To generate this file, please log into the Drawbridge Dashboard and click the "Generate" button.
 		Once that is done, please place those files into the "put_certificates_and_key_from_drawbridge_here" folder and run Emissary again.`, certificatesAndKeysFolderName)
 		log.Fatal(message)
 	}
@@ -35,7 +35,7 @@ func main() {
 	fmt.Println("Emissary is trying to read the Key file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key") {
 		message := fmt.Sprintf(`The "emissary-mtls-tcp.key" file is missing from the "%s" folder, which should be next to this program.
-		To generate this file, please log into the Drawbridge Dashboard and click the "Generate Emissary Client Certificate and Key Files" button.
+		To generate this file, please log into the Drawbridge Dashboard and click the "Generate" button.
 		Once that is done, please place those files into the "put_certificates_and_key_from_drawbridge_here" folder and run Emissary again.`, certificatesAndKeysFolderName)
 		log.Fatal(message)
 	}
