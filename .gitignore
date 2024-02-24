@@ -25,3 +25,4 @@ go.work
 *.pem
 *.crt
 put_certificates_and_key_from_drawbridge_here/
+Emissary
