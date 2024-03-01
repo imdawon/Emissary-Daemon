@@ -68,8 +68,10 @@ func main() {
 	}
 
 	fmt.Println()
+
 	fmt.Println("Please enter your Drawbridge server URL or IP (e.g drawbridge.mysite.com:3100 or 50.162.50.224:3100):")
 	fmt.Println("Please note the default Drawbridge reverse proxy port is 3100.")
+	fmt.Print("Drawbridge server URL or IP: ")
 	var drawbridgeLocationResponse string
 	fmt.Scan(&drawbridgeLocationResponse)
 	fmt.Println()
@@ -85,7 +87,7 @@ func main() {
 		// wait for connection
 		conn, err := l.Accept()
 		if err != nil {
-			utils.PrintFinalError("Reverse proxy TCP Accept failed", err)
+			slog.Error("Reverse proxy TCP Accept failed", err)
 		}
 		// Handle new connection in a new go routine.
 		// The loop then returns to accepting, so that
@@ -94,7 +96,7 @@ func main() {
 			// connect to drawbridge on the port lsitening for the actual service
 			conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeLocationResponse, tlsConfig)
 			if err != nil {
-				utils.PrintFinalError("Failed connecting to Drawbridge mTLS TCP server", err)
+				slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
 				return
 			}
 			defer conn.Close()
