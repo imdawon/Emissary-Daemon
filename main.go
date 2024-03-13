@@ -31,7 +31,7 @@ func main() {
 		runOnboarding()
 	}
 
-	fmt.Println("Emissary is trying to read the Certificate file...")
+	slog.Debug("Emissary is trying to read the Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt") {
 		message := fmt.Sprintf("The \"emissary-mtls-tcp.crt\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
 		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
@@ -39,7 +39,7 @@ func main() {
 		utils.PrintFinalError(message, nil)
 	}
 
-	fmt.Println("Emissary is trying to read the Key file...")
+	slog.Debug("Emissary is trying to read the Key file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key") {
 		message := fmt.Sprintf("The \"emissary-mtls-tcp.key\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
 		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
@@ -47,7 +47,7 @@ func main() {
 		utils.PrintFinalError(message, nil)
 	}
 
-	fmt.Println("Emissary is trying to read the CA Certificate file...")
+	slog.Debug("Emissary is trying to read the CA Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/ca.crt") {
 		message := fmt.Sprintf("The \"ca.crt\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
 		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
@@ -55,7 +55,7 @@ func main() {
 		utils.PrintFinalError(message, nil)
 	}
 
-	fmt.Println("Emissary is trying to load Certificate and Key file for connecting to Drawbridge...")
+	slog.Debug("Emissary is trying to load Certificate and Key file for connecting to Drawbridge...")
 	// load tls configuration
 	cert, err := tls.LoadX509KeyPair("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt", "./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key")
 	if err != nil {
