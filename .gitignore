@@ -27,3 +27,4 @@ go.work
 put_certificates_and_key_from_drawbridge_here/
 Emissary
 .DS_STORE
+__debug_*
