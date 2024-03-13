@@ -83,17 +83,20 @@ func main() {
 	fmt.Println("Please note the default Drawbridge reverse proxy port is 3100.")
 	fmt.Print("Drawbridge server URL or IP: ")
 	drawbridgeLocationResponse := "localhost:3100"
-	// var drawbridgeLocationResponse string
-	// fmt.Scan(&drawbridgeLocationResponse)
 	fmt.Println()
 
 	serviceNames := getProtectedServiceNames(drawbridgeLocationResponse, tlsConfig)
 	runningProxies := make(map[string]net.Listener, 0)
-	err = setUpLocalSeviceProxies(serviceNames, runningProxies, drawbridgeLocationResponse, tlsConfig)
-	if err != nil {
-		utils.PrintFinalError("error setting up local proxies to Drawbridge Protected Resources", err)
-	}
 	fmt.Println("The following services are available:")
+	port := 3200
+	for i, service := range serviceNames {
+		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeLocationResponse, tlsConfig, port, i)
+		if err != nil {
+			utils.PrintFinalError("error setting up local proxies to Drawbridge Protected Resources", err)
+		}
+	}
+	var exitCommand string
+	fmt.Scan(&exitCommand)
 
 }
 
@@ -140,47 +143,50 @@ func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) [
 // Since we multiplex services over the only Drawbridge port, we need a way to tell Drawbridge which service we want to connect to.
 // We can do this by exposing a port locally for each service seperately, and when we connect to each proxy, we can use the
 // proxy port to ma to the service name, and request to connect to that service when we are talking to Drawbridge.
-func setUpLocalSeviceProxies(serviceNames []string, proxies map[string]net.Listener, drawbridgeAddress string, tlsConfig *tls.Config) error {
-	for i, serviceName := range serviceNames {
-		serviceName = strings.TrimSpace(serviceName)
-		port := 4000 + i
-		hostAndPort := fmt.Sprintf("127.0.0.1:%d", port)
-		l, err := net.Listen("tcp", hostAndPort)
-		if err != nil {
-			utils.PrintFinalError("Emissary was unable to start the local proxy server", err)
-		}
-		fmt.Printf("%d) %s on port %d\n", i+1, serviceName, port)
-
-		proxies[serviceName] = l
-
-		defer l.Close()
-		for {
-			// wait for connection
-			conn, err := l.Accept()
-			if err != nil {
-				slog.Error("Reverse proxy TCP Accept failed", err)
-			}
-			// Handle new connection in a new go routine.
-			// The loop then returns to accepting, so that
-			// multiple connections may be served concurrently.
-			go func(clientConn net.Conn) {
-				// connect to drawbridge on the port lsitening for the actual service
-				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
-				if err != nil {
-					slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
-					return
-				}
-				defer conn.Close()
-
-				slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
-				// Copy data back and from client and server.
-				go io.Copy(conn, clientConn)
-				io.Copy(clientConn, conn)
-				// Shut down the connection.
-				clientConn.Close()
-			}(conn)
-		}
-
+func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies map[string]net.Listener, drawbridgeAddress string, tlsConfig *tls.Config, port int, i int) {
+	localServiceProxyPort := port + i
+	protectedServiceName = strings.TrimSpace(protectedServiceName)
+	hostAndPort := fmt.Sprintf("127.0.0.1:%d", localServiceProxyPort)
+	l, err := net.Listen("tcp", hostAndPort)
+	if err != nil {
+		utils.PrintFinalError("Emissary was unable to start the local proxy server", err)
 	}
-	return nil
+	fmt.Printf(`%d) "%s" on port %d\n`, i+1, protectedServiceName, localServiceProxyPort)
+
+	// Save the proxy listener for use later.
+	localServiceProxies[protectedServiceName] = l
+
+	defer l.Close()
+	for {
+		// wait for connection from local machine
+		conn, err := l.Accept()
+		if err != nil {
+			slog.Error("Reverse proxy TCP Accept failed", err)
+		}
+		// Handle new connection in a new go routine.
+		// The loop then returns to accepting, so that
+		// multiple connections may be served concurrently.
+		go func(clientConn net.Conn) {
+			// Connect to Drawbridge .
+			conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
+			if err != nil {
+				slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
+				return
+			}
+			defer conn.Close()
+
+			// Tell Drawbridge the name of the Protected Service we want to connect to.
+			_, err = conn.Write([]byte(fmt.Sprintf("%s %s", ProtectedServiceConnection, protectedServiceName)))
+			if err != nil {
+				utils.PrintFinalError("error sending Drawbridge what Protected Service we want to connect to: %w", err)
+			}
+
+			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
+			// Copy data back and from client and server.
+			go io.Copy(conn, clientConn)
+			io.Copy(clientConn, conn)
+			// Shut down the connection.
+			clientConn.Close()
+		}(conn)
+	}
 }
