@@ -26,5 +26,10 @@ go.work
 *.crt
 put_certificates_and_key_from_drawbridge_here/
 Emissary
+
+# Misc
 .DS_STORE
+
+# Builds
 __debug_*
+release/
