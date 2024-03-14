@@ -84,7 +84,8 @@ func main() {
 	fmt.Println("Please enter your Drawbridge server URL or IP (e.g drawbridge.mysite.com:3100 or 50.162.50.224:3100):")
 	fmt.Println("Please note the default Drawbridge reverse proxy port is 3100.")
 	fmt.Print("Drawbridge server URL or IP: ")
-	drawbridgeLocationResponse := "localhost:3100"
+	var drawbridgeLocationResponse string
+	fmt.Scan(&drawbridgeLocationResponse)
 	fmt.Println()
 
 	serviceNames := getProtectedServiceNames(drawbridgeLocationResponse, tlsConfig)
