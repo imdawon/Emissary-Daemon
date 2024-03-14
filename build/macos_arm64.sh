@@ -1,0 +1,1 @@
+GOARCH=arm64 GOOS=darwin go build -o ./release/Emissary_macos_arm64 -ldflags="-s -w" .
