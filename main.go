@@ -22,6 +22,8 @@ const (
 	// Used by Emissary to tell Drawbridge which Protected Service it wants to connect to.
 	// e.g PS_CONN My Minecraft Server
 	ProtectedServiceConnection = "PS_CONN"
+	// Used to get list of service names for use by Emissary client to tell Drawbridge what Protected Service it wants to connect to.
+	ProtectedServicesList = "PS_LIST"
 )
 
 func main() {
@@ -128,6 +130,9 @@ func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) [
 		return nil
 	}
 	defer conn.Close()
+
+	// Get list of Protected Services.
+	conn.Write([]byte(ProtectedServicesList))
 	// Read incoming data
 	buf := make([]byte, 2000)
 	_, err = conn.Read(buf)
@@ -151,7 +156,7 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 	if err != nil {
 		utils.PrintFinalError("Emissary was unable to start the local proxy server", err)
 	}
-	fmt.Printf(`%d) "%s" on port %d\n`, i+1, protectedServiceName, localServiceProxyPort)
+	fmt.Printf("%d) \"%s\" on port %d\n", i+1, protectedServiceName, localServiceProxyPort)
 
 	// Save the proxy listener for use later.
 	localServiceProxies[protectedServiceName] = l
@@ -167,6 +172,7 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 		// The loop then returns to accepting, so that
 		// multiple connections may be served concurrently.
 		go func(clientConn net.Conn) {
+			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
 			// Connect to Drawbridge .
 			conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
 			if err != nil {
@@ -181,7 +187,6 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 				utils.PrintFinalError("error sending Drawbridge what Protected Service we want to connect to: %w", err)
 			}
 
-			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
 			// Copy data back and from client and server.
 			go io.Copy(conn, clientConn)
 			io.Copy(clientConn, conn)
