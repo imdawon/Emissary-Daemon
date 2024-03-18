@@ -90,7 +90,9 @@ func main() {
 
 	serviceNames := getProtectedServiceNames(drawbridgeLocationResponse, tlsConfig)
 	runningProxies := make(map[string]net.Listener, 0)
-	fmt.Println("The following services are available:")
+	// TODO
+	// dont run this print unless we were able to get at least one service from Drawbridge.
+	fmt.Println("The following Protected Services are available:")
 	port := 3200
 	for i, service := range serviceNames {
 		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeLocationResponse, tlsConfig, port, i)
