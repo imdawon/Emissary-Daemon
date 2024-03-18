@@ -28,7 +28,8 @@ const (
 
 func main() {
 	fmt.Println("Emissary is starting...")
-	_, err := os.Stat(certificatesAndKeysFolderName)
+	certificatesAndKeysFolderPath := utils.CreateEmissaryFileReadPath(certificatesAndKeysFolderName)
+	_, err := os.Stat(certificatesAndKeysFolderPath)
 	if os.IsNotExist(err) {
 		runOnboarding()
 	}
@@ -59,7 +60,9 @@ func main() {
 
 	slog.Debug("Emissary is trying to load Certificate and Key file for connecting to Drawbridge...")
 	// load tls configuration
-	cert, err := tls.LoadX509KeyPair("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt", "./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key")
+	mTLSCertificatePath := utils.CreateEmissaryFileReadPath("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt")
+	mTLSKeyPath := utils.CreateEmissaryFileReadPath("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key")
+	cert, err := tls.LoadX509KeyPair(mTLSCertificatePath, mTLSKeyPath)
 	if err != nil {
 		utils.PrintFinalError("", err)
 	}
@@ -68,7 +71,8 @@ func main() {
 	if err != nil {
 		utils.PrintFinalError("", err)
 	}
-	if caCertPEM, err := os.ReadFile("./put_certificates_and_key_from_drawbridge_here/ca.crt"); err != nil {
+	drawbridgeCAPath := utils.CreateEmissaryFileReadPath("./put_certificates_and_key_from_drawbridge_here/ca.crt")
+	if caCertPEM, err := os.ReadFile(drawbridgeCAPath); err != nil {
 		utils.PrintFinalError("", err)
 	} else if ok := certPool.AppendCertsFromPEM(caCertPEM); !ok {
 		utils.PrintFinalError("invalid cert in CA PEM", nil)
@@ -90,7 +94,9 @@ func main() {
 
 	serviceNames := getProtectedServiceNames(drawbridgeLocationResponse, tlsConfig)
 	runningProxies := make(map[string]net.Listener, 0)
-	fmt.Println("The following services are available:")
+	// TODO
+	// dont run this print unless we were able to get at least one service from Drawbridge.
+	fmt.Println("The following Protected Services are available:")
 	port := 3200
 	for i, service := range serviceNames {
 		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeLocationResponse, tlsConfig, port, i)
@@ -112,7 +118,8 @@ func runOnboarding() {
 	fmt.Println("place them in the \"put_certificates_and_key_from_drawbridge_here\" folder we just created.")
 	fmt.Println("Once completed, run Emissary again to connect to your Protected Service!")
 	fmt.Println("\nPress Enter key to exit...")
-	if err := os.Mkdir(certificatesAndKeysFolderName, os.ModePerm); err != nil {
+	certAndKeyFolderPath := utils.CreateEmissaryFileReadPath(certificatesAndKeysFolderName)
+	if err := os.Mkdir(certAndKeyFolderPath, os.ModePerm); err != nil {
 		utils.PrintFinalError("Unable to create put_certificates_and_key_from_drawbridge_here folder! This folder is required to exist, so please create it yourself or allow Emissary the permissions required to create it.", nil)
 	} else {
 		var noop string
