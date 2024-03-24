@@ -53,3 +53,20 @@ func PrintFinalError(message string, err error) {
 	fmt.Scanln(&noop)
 	os.Exit(1)
 }
+
+func ReadFile(pathWithFilename string) *[]byte {
+	// Ensure we are only reading files from our executable and not where the terminal is executing from.
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	execDirPath := path.Dir(execPath)
+	fullFilePath := filepath.Join(execDirPath, pathWithFilename)
+	slog.Debug("File Operation", slog.String("Read File", fullFilePath))
+
+	file, err := os.ReadFile(fullFilePath)
+	if !errors.Is(err, os.ErrNotExist) {
+		return &file
+	}
+	return nil
+}
