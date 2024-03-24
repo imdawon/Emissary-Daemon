@@ -29,10 +29,15 @@ const (
 func main() {
 	fmt.Println("Emissary is starting...")
 	certificatesAndKeysFolderPath := utils.CreateEmissaryFileReadPath(certificatesAndKeysFolderName)
+
 	_, err := os.Stat(certificatesAndKeysFolderPath)
 	if os.IsNotExist(err) {
 		runOnboarding()
 	}
+
+	// A Drawbridge admin can create an "Emissary Bundle" which will contain certificate and drawbridge server info
+	// to remove the need for a user to configure Emissary manually.
+	emissaryBundle := getEmissaryBundle()
 
 	slog.Debug("Emissary is trying to read the Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt") {
@@ -83,23 +88,26 @@ func main() {
 		Certificates: []tls.Certificate{cert},
 	}
 
-	fmt.Println()
+	var drawbridgeAddress string
+	if emissaryBundle == nil {
+		fmt.Println("Please enter your Drawbridge server URL or IP (e.g drawbridge.mysite.com:3100 or 50.162.50.224:3100):")
+		fmt.Println("Please note the default Drawbridge reverse proxy port is 3100.")
+		fmt.Print("Drawbridge server URL or IP: ")
+		fmt.Scan(&drawbridgeAddress)
+		fmt.Println()
+	} else {
+		fmt.Printf("Connecting to Drawbridge server from local Emissary Bundle at %s...\n\n", *emissaryBundle)
+		drawbridgeAddress = *emissaryBundle
+	}
 
-	fmt.Println("Please enter your Drawbridge server URL or IP (e.g drawbridge.mysite.com:3100 or 50.162.50.224:3100):")
-	fmt.Println("Please note the default Drawbridge reverse proxy port is 3100.")
-	fmt.Print("Drawbridge server URL or IP: ")
-	var drawbridgeLocationResponse string
-	fmt.Scan(&drawbridgeLocationResponse)
-	fmt.Println()
-
-	serviceNames := getProtectedServiceNames(drawbridgeLocationResponse, tlsConfig)
+	serviceNames := getProtectedServiceNames(drawbridgeAddress, tlsConfig)
 	runningProxies := make(map[string]net.Listener, 0)
 	// TODO
 	// dont run this print unless we were able to get at least one service from Drawbridge.
 	fmt.Println("The following Protected Services are available:")
 	port := 3200
 	for i, service := range serviceNames {
-		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeLocationResponse, tlsConfig, port, i)
+		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeAddress, tlsConfig, port, i)
 		if err != nil {
 			utils.PrintFinalError("error setting up local proxies to Drawbridge Protected Resources", err)
 		}
@@ -201,5 +209,22 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 			// Shut down the connection.
 			clientConn.Close()
 		}(conn)
+	}
+}
+
+func getEmissaryBundle() *string {
+	// We don't call the file path builder function here because it doesn't work.
+	bundlePath := "./bundle/drawbridge.txt"
+	_, err := os.Stat(bundlePath)
+	if os.IsNotExist(err) {
+		return nil
+	} else {
+		bundleBytes := utils.ReadFile(bundlePath)
+		if bundleBytes != nil {
+			bundleData := strings.TrimSpace(string(*bundleBytes))
+			return &bundleData
+		} else {
+			return nil
+		}
 	}
 }
