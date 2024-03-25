@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-rm -rf release/
+rm -dr release/
 echo -n "Enter Version (xxx) with -alpha or -beta tag if relevant: "
 read version
 ./build/linux_amd64.sh $(echo $version)
