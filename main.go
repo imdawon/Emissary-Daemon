@@ -213,8 +213,8 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 }
 
 func getEmissaryBundle() *string {
+	bundlePath := utils.CreateEmissaryFileReadPath("./bundle/drawbridge.txt")
 	// We don't call the file path builder function here because it doesn't work.
-	bundlePath := "./bundle/drawbridge.txt"
 	_, err := os.Stat(bundlePath)
 	if os.IsNotExist(err) {
 		return nil
