@@ -33,3 +33,4 @@ Emissary
 # Builds
 __debug_*
 release/
+bundle/
