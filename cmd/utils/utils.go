@@ -44,9 +44,9 @@ func PrintFinalError(message string, err error) {
 		message = "A fatal error occurred"
 	}
 	if err == nil {
-		log.Printf(message)
+		log.Printf("%s %s", message, "Please send this error message to @dawsohen on X.")
 	} else {
-		log.Printf("%s: %s", message, err)
+		log.Printf("%s %s: %s", message, "Please send this error message to @dawsohen on X.", err)
 	}
 	fmt.Println("Press Enter key to exit...")
 	var noop string
@@ -69,4 +69,8 @@ func ReadFile(pathWithFilename string) *[]byte {
 		return &file
 	}
 	return nil
+}
+
+func PadWithZeros(num int) string {
+	return fmt.Sprintf("%03d", num)
 }

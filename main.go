@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,29 +38,26 @@ func main() {
 
 	// A Drawbridge admin can create an "Emissary Bundle" which will contain certificate and drawbridge server info
 	// to remove the need for a user to configure Emissary manually.
-	emissaryBundle := getEmissaryBundle()
+	emissaryBundle := getDrawbridgeAddress()
 
 	slog.Debug("Emissary is trying to read the Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt") {
 		message := fmt.Sprintf("The \"emissary-mtls-tcp.crt\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
-		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
-		message += "Once that is done, please place those files into the \"put_certificates_and_key_from_drawbridge_here\" folder and run Emissary again.\n\n"
+		message += "To generate this file, please request an Emissary Bundle from your Drawbridge admin.\n"
 		utils.PrintFinalError(message, nil)
 	}
 
 	slog.Debug("Emissary is trying to read the Key file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key") {
 		message := fmt.Sprintf("The \"emissary-mtls-tcp.key\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
-		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
-		message += "Once that is done, please place those files into the \"put_certificates_and_key_from_drawbridge_here\" folder and run Emissary again.\n\n"
+		message += "To generate this file, please request an Emissary Bundle from your Drawbridge admin.\n"
 		utils.PrintFinalError(message, nil)
 	}
 
 	slog.Debug("Emissary is trying to read the CA Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/ca.crt") {
 		message := fmt.Sprintf("The \"ca.crt\" file is missing from the \"%s\" folder, which should be next to this program.\n", certificatesAndKeysFolderName)
-		message += "To generate this file, please log into the Drawbridge Dashboard and click the \"Generate\" button.\n"
-		message += "Once that is done, please place those files into the \"put_certificates_and_key_from_drawbridge_here\" folder and run Emissary again.\n\n"
+		message += "To generate this file, please request an Emissary Bundle from your Drawbridge admin.\n"
 		utils.PrintFinalError(message, nil)
 	}
 
@@ -106,8 +104,8 @@ func main() {
 	// dont run this print unless we were able to get at least one service from Drawbridge.
 	fmt.Println("The following Protected Services are available:")
 	port := 3200
-	for i, service := range serviceNames {
-		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeAddress, tlsConfig, port, i)
+	for _, service := range serviceNames {
+		go setUpLocalSeviceProxies(service, runningProxies, drawbridgeAddress, tlsConfig, port)
 		if err != nil {
 			utils.PrintFinalError("error setting up local proxies to Drawbridge Protected Resources", err)
 		}
@@ -122,18 +120,8 @@ func runOnboarding() {
 	fmt.Println("  Welcome to Emissary!")
 	fmt.Println("* * * * * * * * * * * *")
 	fmt.Println("\nFIRST TIME SETUP INSTRUCTIONS:")
-	fmt.Println("Please have your Drawbridge admin give you the required key and certificate files; then")
-	fmt.Println("place them in the \"put_certificates_and_key_from_drawbridge_here\" folder we just created.")
-	fmt.Println("Once completed, run Emissary again to connect to your Protected Service!")
-	fmt.Println("\nPress Enter key to exit...")
-	certAndKeyFolderPath := utils.CreateEmissaryFileReadPath(certificatesAndKeysFolderName)
-	if err := os.Mkdir(certAndKeyFolderPath, os.ModePerm); err != nil {
-		utils.PrintFinalError("Unable to create put_certificates_and_key_from_drawbridge_here folder! This folder is required to exist, so please create it yourself or allow Emissary the permissions required to create it.", nil)
-	} else {
-		var noop string
-		fmt.Scanln(&noop)
-		os.Exit(0)
-	}
+	fmt.Println("If you're seeing this, you aren't using an Emissary Bundle or deleted your bundle and put_certificates_and_keys_here folder and files.")
+	utils.PrintFinalError("Reach out to your Drawbridge admin and ask for one :)", nil)
 }
 
 // We need to request the list of services from Drawbridge via a TCP call.
@@ -142,7 +130,11 @@ func runOnboarding() {
 func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) []string {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
 	if err != nil {
-		slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
+		slog.Error("Drawbridge Connection Failed - Retrying in 5 seconds")
+		fiveSecondsFromNow := time.Until(time.Now().Add(time.Second * 5))
+		time.AfterFunc(fiveSecondsFromNow, func() {
+			getProtectedServiceNames(drawbridgeAddress, tlsConfig)
+		})
 		return nil
 	}
 	defer conn.Close()
@@ -164,18 +156,25 @@ func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) [
 // Since we multiplex services over the only Drawbridge port, we need a way to tell Drawbridge which service we want to connect to.
 // We can do this by exposing a port locally for each service seperately, and when we connect to each proxy, we can use the
 // proxy port to ma to the service name, and request to connect to that service when we are talking to Drawbridge.
-func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies map[string]net.Listener, drawbridgeAddress string, tlsConfig *tls.Config, port int, i int) {
-	localServiceProxyPort := port + i
-	protectedServiceName = strings.TrimSpace(protectedServiceName)
+func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies map[string]net.Listener, drawbridgeAddress string, tlsConfig *tls.Config, port int) {
+	protectedServiceString = strings.TrimSpace(protectedServiceString)
+	// This is the id of the service in Drawbridge.
+	// It is used
+	portOffset, err := strconv.Atoi(protectedServiceString[1:3])
+	protectedServiceName := protectedServiceString[3:]
+	if err != nil {
+		utils.PrintFinalError("Error parsing protected service string: %w", err)
+	}
+	localServiceProxyPort := port + portOffset
 	hostAndPort := fmt.Sprintf("127.0.0.1:%d", localServiceProxyPort)
 	l, err := net.Listen("tcp", hostAndPort)
 	if err != nil {
 		utils.PrintFinalError("Emissary was unable to start the local proxy server", err)
 	}
-	fmt.Printf("%d) \"%s\" on port %d\n", i+1, protectedServiceName, localServiceProxyPort)
+	fmt.Printf("• \"%s\" on localhost:%d\n", protectedServiceName, localServiceProxyPort)
 
 	// Save the proxy listener for use later.
-	localServiceProxies[protectedServiceName] = l
+	localServiceProxies[protectedServiceString] = l
 
 	defer l.Close()
 	for {
@@ -190,15 +189,34 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 		go func(clientConn net.Conn) {
 			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
 			// Connect to Drawbridge .
-			conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
-			if err != nil {
-				slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
-				return
+			var dialer net.Dialer
+			var conn net.Conn
+			const maxRetries = 999
+			retries := 0
+			for {
+				conn, err = establishConnection(dialer, drawbridgeAddress, tlsConfig)
+				if err == nil {
+					// Connection established successfully, handle it
+					break
+				}
+
+				retries++
+				if retries >= maxRetries {
+					// Maximum retries reached, handle the error
+					slog.Error("Failed to establish connection after", maxRetries, "retries")
+					return
+				}
+
+				// Wait for a short duration before retrying
+				slog.Error("Failed to establish connection to Drawbridge. Retrying in 1 second...")
+				time.Sleep(1 * time.Second)
 			}
+
 			defer conn.Close()
 
 			// Tell Drawbridge the name of the Protected Service we want to connect to.
-			_, err = conn.Write([]byte(fmt.Sprintf("%s %s", ProtectedServiceConnection, protectedServiceName)))
+			protectedServiceConnectionMessage := fmt.Sprintf("%s %s", ProtectedServiceConnection, protectedServiceString)
+			_, err = conn.Write([]byte(protectedServiceConnectionMessage))
 			if err != nil {
 				utils.PrintFinalError("error sending Drawbridge what Protected Service we want to connect to: %w", err)
 			}
@@ -212,7 +230,17 @@ func setUpLocalSeviceProxies(protectedServiceName string, localServiceProxies ma
 	}
 }
 
-func getEmissaryBundle() *string {
+func establishConnection(dialer net.Dialer, drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
+	if err == nil {
+		slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
+		return conn, nil
+	}
+	return nil, err
+
+}
+
+func getDrawbridgeAddress() *string {
 	bundleBytes := utils.ReadFile("./bundle/drawbridge.txt")
 	if bundleBytes != nil {
 		bundleData := strings.TrimSpace(string(*bundleBytes))
