@@ -3,7 +3,7 @@
 
 [Click here to quickly set up Drawbridge and Emissary](https://github.com/dhens/Drawbridge/wiki/Quick-Start-Up-Guide-%E2%80%90-Get-Drawbridge-and-Emissary-protecting-your-applications-%E2%80%90-v0.1.0%E2%80%90alpha)
 
-Note: Emissary should not be downloaded directly. It should only be downloaded using the Emissary Bundle feature in the [Drawbridge reverse proxy](https://github.com/dhens/Drawbridge).
+**Note: Emissary should not be downloaded directly. It should only be downloaded using the Emissary Bundle feature in the [Drawbridge reverse proxy](https://github.com/dhens/Drawbridge).**
 
 A desktop agent used to prove a set of conditions required by the [Drawbridge reverse proxy](https://github.com/dhens/Drawbridge) to be granted an mTLS certificate to access resources beyond Drawbridge. 
 
