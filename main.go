@@ -232,11 +232,11 @@ func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies 
 
 func establishConnection(dialer net.Dialer, drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
-	if err == nil {
+	if err != nil {
 		slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
-		return conn, nil
+		return nil, err
 	}
-	return nil, err
+	return conn, nil
 
 }
 
