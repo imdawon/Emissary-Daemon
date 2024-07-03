@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"dhes/emissary/daemon/cmd/utils"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	outboundService = flag.String("outbound", "", "Local service to proxy (e.g., localhost:5432)")
+	serviceName     = flag.String("service-name", "", "Name of the service to register with Drawbridge")
 )
 
 var certificatesAndKeysFolderName = "put_certificates_and_key_from_drawbridge_here"
@@ -27,7 +33,13 @@ const (
 	ProtectedServicesList = "PS_LIST"
 )
 
+const (
+	OutboundConnectionCreate = "OB_CR8T"
+	OutboundConnection       = "OB_CONN"
+)
+
 func main() {
+	flag.Parse()
 	fmt.Println("Emissary is starting...")
 	certificatesAndKeysFolderPath := utils.CreateEmissaryFileReadPath(certificatesAndKeysFolderName)
 
@@ -98,6 +110,15 @@ func main() {
 		drawbridgeAddress = *emissaryBundle
 	}
 
+	if *outboundService != "" {
+		slog.Info("Attempting Outbound Mode...")
+		if *serviceName == "" {
+			utils.PrintFinalError("Service name must be provided when using outbound mode", nil)
+		}
+		setupOutboundProxy(*outboundService, *serviceName, drawbridgeAddress, tlsConfig)
+		utils.PrintFinalError("Outbound Proxy Failed", fmt.Errorf("connection to Drawbridge has ceased"))
+	}
+
 	serviceNames := getProtectedServiceNames(drawbridgeAddress, tlsConfig)
 	runningProxies := make(map[string]net.Listener, 0)
 	// TODO
@@ -110,9 +131,97 @@ func main() {
 			utils.PrintFinalError("error setting up local proxies to Drawbridge Protected Resources", err)
 		}
 	}
+
 	var exitCommand string
 	fmt.Scan(&exitCommand)
 
+}
+
+func setupOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsConfig *tls.Config) {
+	conn, err := establishConnection(drawbridgeAddress, tlsConfig)
+	if err != nil {
+		utils.PrintFinalError("Failed to connect to Drawbridge", err)
+	}
+	defer conn.Close()
+
+	// Register the service with Drawbridge
+	registerMsg := fmt.Sprintf("%s %s", OutboundConnectionCreate, serviceName)
+	if _, err := conn.Write([]byte(registerMsg)); err != nil {
+		utils.PrintFinalError("Failed to register service with Drawbridge", err)
+	}
+
+	slog.Info("Waiting for ack from Drawbridge...")
+	// Read acknowledgement from Drawbridge
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil || string(buf[:n]) != "ACK" {
+		utils.PrintFinalError("Failed to receive acknowledgement from Drawbridge", err)
+	}
+
+	slog.Info(fmt.Sprintf("Registered outbound service %s for %s", serviceName, localService))
+
+	handleDrawbridgeConnections(conn, localService)
+}
+
+func handleDrawbridgeConnections(drawbridgeConn net.Conn, localService string) {
+	for {
+		// go func() {
+		// Wait for a signal from Drawbridge that a new connection is incoming
+		buf := make([]byte, 1024)
+		n, err := drawbridgeConn.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				slog.Info("Drawbridge connection closed")
+			} else {
+				slog.Error("Error reading from Drawbridge", err)
+			}
+			return
+		}
+
+		if string(buf[:n]) == "NEW_CONNECTION" {
+			slog.Info("Received NEW_CONNECTION, connecting to local service", localService)
+			localConn, err := net.Dial("tcp", localService)
+			if err != nil {
+				slog.Error("Failed to connect to local service", err)
+				drawbridgeConn.Write([]byte("LOCAL_CONN_FAILED"))
+				return
+			}
+			defer localConn.Close()
+
+			slog.Info("Connected to local service, sending LOCAL_CONN_ESTABLISHED")
+			_, err = drawbridgeConn.Write([]byte("LOCAL_CONN_ESTABLISHED"))
+			if err != nil {
+				slog.Error("Failed to send LOCAL_CONN_ESTABLISHED", err)
+				return
+			}
+
+			slog.Info("Starting to proxy data")
+			go io.Copy(localConn, drawbridgeConn)
+			io.Copy(drawbridgeConn, localConn)
+			slog.Info("Finished proxying data")
+		}
+		// }()
+	}
+}
+func debugProxy(src, dst net.Conn, direction string) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			slog.Debug(fmt.Sprintf("Proxying data %s", direction), "bytes", n, "data", string(buf[:n]))
+			_, err := dst.Write(buf[:n])
+			if err != nil {
+				slog.Error("Error writing data", err)
+				return
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				slog.Error("Error reading data", err)
+			}
+			return
+		}
+	}
 }
 
 func runOnboarding() {
@@ -128,7 +237,7 @@ func runOnboarding() {
 // It doesn't _have_ to be a TCP call, but we don't need to overhead of HTTP for this, I don't think.
 // And at the end of the day we need to write to our connection to Drawbridge later with the name of the service we want to connect to.
 func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) []string {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
+	conn, err := establishConnection(drawbridgeAddress, tlsConfig)
 	if err != nil {
 		slog.Error("Drawbridge Connection Failed - Retrying in 5 seconds")
 		fiveSecondsFromNow := time.Until(time.Now().Add(time.Second * 5))
@@ -189,12 +298,11 @@ func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies 
 		go func(clientConn net.Conn) {
 			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
 			// Connect to Drawbridge .
-			var dialer net.Dialer
 			var conn net.Conn
 			const maxRetries = 999
 			retries := 0
 			for {
-				conn, err = establishConnection(dialer, drawbridgeAddress, tlsConfig)
+				conn, err = establishConnection(drawbridgeAddress, tlsConfig)
 				if err == nil {
 					// Connection established successfully, handle it
 					break
@@ -230,12 +338,13 @@ func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies 
 	}
 }
 
-func establishConnection(dialer net.Dialer, drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
+func establishConnection(drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
 	if err != nil {
 		slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
 		return nil, err
 	}
+	slog.Info("Connected to Drawbridge!")
 	return conn, nil
 
 }

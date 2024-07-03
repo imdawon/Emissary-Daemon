@@ -11,6 +11,11 @@
           "mode": "auto",
           "program": "${workspaceFolder}/main.go",
           "args": [
+            "--outbound",
+            "localhost:8081",
+            "--service-name",
+            "Emissary Outbound HTTP Server Test",
+
           ],
         }
       ]
