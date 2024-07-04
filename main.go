@@ -166,48 +166,59 @@ func setupOutboundProxy(localService, serviceName, drawbridgeAddress string, tls
 func handleDrawbridgeConnections(drawbridgeConn net.Conn, localService string) {
 	defer drawbridgeConn.Close()
 
+	buffer := make([]byte, 4096)
 	for {
+		// Read the request from Drawbridge
+		n, err := drawbridgeConn.Read(buffer)
+		if err != nil {
+			if err != io.EOF {
+				slog.Error("Error reading from Drawbridge", "error", err)
+			}
+			return
+		}
+
+		// Connect to local service for each request
 		localConn, err := net.Dial("tcp", localService)
 		if err != nil {
 			slog.Error("Failed to connect to local service", "error", err)
 			continue
 		}
 
-		slog.Info("Starting to proxy data")
+		// Send request to local service
+		_, err = localConn.Write(buffer[:n])
+		if err != nil {
+			slog.Error("Error writing to local service", "error", err)
+			localConn.Close()
+			continue
+		}
 
-		// Proxy Drawbridge to local
-		go func() {
-			defer localConn.Close()
-			io.Copy(localConn, drawbridgeConn)
-		}()
-
-		// Proxy local to Drawbridge
-		io.Copy(drawbridgeConn, localConn)
-
-		slog.Info("Finished proxying data for this request")
-	}
-}
-func debugProxy(src, dst net.Conn, direction string) {
-	buf := make([]byte, 1024)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			slog.Debug(fmt.Sprintf("Proxying data %s", direction), "bytes", n, "data", string(buf[:n]))
-			_, err := dst.Write(buf[:n])
+		// Read response from local service
+		var responseData []byte
+		responseBuffer := make([]byte, 4096)
+		for {
+			n, err := localConn.Read(responseBuffer)
 			if err != nil {
-				slog.Error("Error writing data", err)
-				return
+				if err != io.EOF {
+					slog.Error("Error reading from local service", "error", err)
+				}
+				break
+			}
+			responseData = append(responseData, responseBuffer[:n]...)
+			if n < len(responseBuffer) {
+				break
 			}
 		}
+
+		// Send response back to Drawbridge
+		_, err = drawbridgeConn.Write(responseData)
 		if err != nil {
-			if err != io.EOF {
-				slog.Error("Error reading data", err)
-			}
+			slog.Error("Error writing response to Drawbridge", "error", err)
 			return
 		}
+
+		localConn.Close()
 	}
 }
-
 func runOnboarding() {
 	fmt.Println("\n* * * * * * * * * * * *")
 	fmt.Println("  Welcome to Emissary!")
