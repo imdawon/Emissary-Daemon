@@ -14,8 +14,8 @@
 (optional) --service-name <name>: Outbound service name as seen in Emissary and the Drawbridge Dashboard.
 ```
 
-
-A desktop agent used to prove a set of conditions required by the [Drawbridge reverse proxy](https://github.com/dhens/Drawbridge) to be granted an mTLS certificate to access resources beyond Drawbridge. 
+### Features
+An mTLS client to access Protected Services beyond the [Drawbridge reverse proxy](https://github.com/dhens/Drawbridge). 
 
 Self-hosting is a nightmare. If you're naive, you blow a hole in your home router to allow access to whatever resource you want to have accessible via the internet. If you're *"smart"*, you let some other service handle the ingress for you, most likely allowing for traffic inspection and mad metadata slurp-age by said service. Even if there's none of that, it doesn't really feel like you're sticking it to the man when you have to rely on a service to keep your self-hosted applications secure.
 
@@ -28,6 +28,9 @@ Drawbridge will routinely check in on Emissary clients to ensure they continue t
 [Click here to read more about how Drawbridge works](https://github.com/dhens/Drawbridge).
 
 ## Features
+
+### Default / Regular Mode
+
 
 ### Outbound Mode: 
 **Deploy your Protected Services that live “behind enemy lines”.**
