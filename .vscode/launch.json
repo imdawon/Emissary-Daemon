@@ -11,6 +11,11 @@
           "mode": "auto",
           "program": "${workspaceFolder}/main.go",
           "args": [
+            "--outbound",
+            "localhost:25565",
+            "--service-name",
+            "EmissaryOutboundTest",
+
           ],
         }
       ]
