@@ -29,7 +29,7 @@ Drawbridge will routinely check in on Emissary clients to ensure they continue t
 
 ## Features
 
-### Emissary Outbound: 
+### Outbound Mode: 
 **Deploy your Protected Services that live “behind enemy lines”.**
 
 Punch a hole outward with Emissary Outbound to create a Protected Service where you don’t control the network / can’t allow ingress from the internet.
