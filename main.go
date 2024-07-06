@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -115,7 +116,7 @@ func main() {
 		if *serviceName == "" {
 			utils.PrintFinalError("Service name must be provided when using outbound mode", nil)
 		}
-		setupOutboundProxy(*outboundService, *serviceName, drawbridgeAddress, tlsConfig)
+		runOutboundProxy(*outboundService, *serviceName, drawbridgeAddress, tlsConfig)
 		utils.PrintFinalError("Outbound Proxy Failed", fmt.Errorf("connection to Drawbridge has ceased"))
 	}
 
@@ -137,87 +138,57 @@ func main() {
 
 }
 
-func setupOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsConfig *tls.Config) {
-	conn, err := establishConnection(drawbridgeAddress, tlsConfig)
-	if err != nil {
-		utils.PrintFinalError("Failed to connect to Drawbridge", err)
+func runOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsConfig *tls.Config) error {
+	for {
+		// Connect to Drawbridge
+		drawbridgeConn, err := establishConnection(drawbridgeAddress, tlsConfig)
+		if err != nil {
+			slog.Error("Failed to connect to Drawbridge, retrying in 5 seconds", "error", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Register the service with Drawbridge
+		registerMsg := fmt.Sprintf("%s %s", OutboundConnectionCreate, serviceName)
+		if _, err := drawbridgeConn.Write([]byte(registerMsg)); err != nil {
+			slog.Error("Failed to register service with Drawbridge", "error", err)
+			drawbridgeConn.Close()
+			continue
+		}
+
+		// Wait for acknowledgement
+		buf := make([]byte, 1024)
+		n, err := drawbridgeConn.Read(buf)
+		if err != nil || string(buf[:n]) != "ACK" {
+			slog.Error("Failed to receive acknowledgement from Drawbridge", "error", err)
+			drawbridgeConn.Close()
+			continue
+		}
+
+		slog.Info("Registered outbound service", "service", serviceName, "localAddress", localService)
+
+		// Handle the connection
+		handleOutboundConnection(drawbridgeConn, localService)
+
+		// Close the Drawbridge connection after handling
+		drawbridgeConn.Close()
 	}
-	defer conn.Close()
-
-	// Register the service with Drawbridge
-	registerMsg := fmt.Sprintf("%s %s", OutboundConnectionCreate, serviceName)
-	if _, err := conn.Write([]byte(registerMsg)); err != nil {
-		utils.PrintFinalError("Failed to register service with Drawbridge", err)
-	}
-
-	slog.Info("Waiting for ack from Drawbridge...")
-	// Read acknowledgement from Drawbridge
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil || string(buf[:n]) != "ACK" {
-		utils.PrintFinalError("Failed to receive acknowledgement from Drawbridge", err)
-	}
-
-	slog.Info(fmt.Sprintf("Registered outbound service %s for %s", serviceName, localService))
-
-	handleDrawbridgeConnections(conn, localService)
 }
 
-func handleDrawbridgeConnections(drawbridgeConn net.Conn, localService string) {
+func handleOutboundConnection(drawbridgeConn net.Conn, localService string) {
 	defer drawbridgeConn.Close()
 
-	buffer := make([]byte, 4096)
-	for {
-		// Read the request from Drawbridge
-		n, err := drawbridgeConn.Read(buffer)
-		if err != nil {
-			if err != io.EOF {
-				slog.Error("Error reading from Drawbridge", "error", err)
-			}
-			return
-		}
-
-		// Connect to local service for each request
-		localConn, err := net.Dial("tcp", localService)
-		if err != nil {
-			slog.Error("Failed to connect to local service", "error", err)
-			continue
-		}
-
-		// Send request to local service
-		_, err = localConn.Write(buffer[:n])
-		if err != nil {
-			slog.Error("Error writing to local service", "error", err)
-			localConn.Close()
-			continue
-		}
-
-		// Read response from local service
-		var responseData []byte
-		responseBuffer := make([]byte, 4096)
-		for {
-			n, err := localConn.Read(responseBuffer)
-			if err != nil {
-				if err != io.EOF {
-					slog.Error("Error reading from local service", "error", err)
-				}
-				break
-			}
-			responseData = append(responseData, responseBuffer[:n]...)
-			if n < len(responseBuffer) {
-				break
-			}
-		}
-
-		// Send response back to Drawbridge
-		_, err = drawbridgeConn.Write(responseData)
-		if err != nil {
-			slog.Error("Error writing response to Drawbridge", "error", err)
-			return
-		}
-
-		localConn.Close()
+	// Connect to the local service
+	localConn, err := net.Dial("tcp", localService)
+	if err != nil {
+		slog.Error("Failed to connect to local service", "error", err)
+		return
 	}
+	defer localConn.Close()
+
+	proxyData(drawbridgeConn, localConn)
+
+	slog.Info("Connection closed")
 }
 func runOnboarding() {
 	fmt.Println("\n* * * * * * * * * * * *")
@@ -282,57 +253,64 @@ func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies 
 
 	defer l.Close()
 	for {
-		// wait for connection from local machine
-		conn, err := l.Accept()
+		clientConn, err := l.Accept()
 		if err != nil {
 			slog.Error("Reverse proxy TCP Accept failed", err)
+			continue
 		}
-		// Handle new connection in a new go routine.
-		// The loop then returns to accepting, so that
-		// multiple connections may be served concurrently.
-		go func(clientConn net.Conn) {
-			slog.Info(fmt.Sprintf("TCP Accept from: %s\n", clientConn.RemoteAddr()))
-			// Connect to Drawbridge .
-			var conn net.Conn
-			const maxRetries = 999
-			retries := 0
-			for {
-				conn, err = establishConnection(drawbridgeAddress, tlsConfig)
-				if err == nil {
-					// Connection established successfully, handle it
-					break
-				}
 
-				retries++
-				if retries >= maxRetries {
-					// Maximum retries reached, handle the error
-					slog.Error("Failed to establish connection after", maxRetries, "retries")
-					return
-				}
-
-				// Wait for a short duration before retrying
-				slog.Error("Failed to establish connection to Drawbridge. Retrying in 1 second...")
-				time.Sleep(1 * time.Second)
-			}
-
-			defer conn.Close()
-
-			// Tell Drawbridge the name of the Protected Service we want to connect to.
-			protectedServiceConnectionMessage := fmt.Sprintf("%s %s", ProtectedServiceConnection, protectedServiceString)
-			_, err = conn.Write([]byte(protectedServiceConnectionMessage))
-			if err != nil {
-				utils.PrintFinalError("error sending Drawbridge what Protected Service we want to connect to: %w", err)
-			}
-
-			// Copy data back and from client and server.
-			go io.Copy(conn, clientConn)
-			io.Copy(clientConn, conn)
-			// Shut down the connection.
-			clientConn.Close()
-		}(conn)
+		go handleConnection(clientConn, drawbridgeAddress, tlsConfig, protectedServiceString)
 	}
 }
 
+func proxyData(dst net.Conn, src net.Conn) {
+	defer dst.Close()
+	defer src.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		_, err := io.Copy(dst, src)
+		if err != nil {
+			slog.Error("Failed to copy src to dst", "error", err)
+		}
+		dst.Close()
+
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := io.Copy(src, dst)
+		if err != nil {
+			slog.Error("Failed to copy dst to src", "error", err)
+		}
+		src.Close()
+	}()
+
+	wg.Wait()
+}
+
+func handleConnection(clientConn net.Conn, drawbridgeAddress string, tlsConfig *tls.Config, protectedServiceString string) {
+	defer clientConn.Close()
+
+	drawbridgeConn, err := establishConnection(drawbridgeAddress, tlsConfig)
+	if err != nil {
+		slog.Error("Failed to connect to Drawbridge", "error", err)
+		return
+	}
+	defer drawbridgeConn.Close()
+
+	// Tell Drawbridge the name of the Protected Service we want to connect to.
+	protectedServiceConnectionMessage := fmt.Sprintf("%s %s", ProtectedServiceConnection, protectedServiceString)
+	_, err = drawbridgeConn.Write([]byte(protectedServiceConnectionMessage))
+	if err != nil {
+		slog.Error("Error sending Protected Service connection message", "error", err)
+		return
+	}
+
+	proxyData(drawbridgeConn, clientConn)
+}
 func establishConnection(drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
 	if err != nil {

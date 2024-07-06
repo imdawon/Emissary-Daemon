@@ -12,9 +12,9 @@
           "program": "${workspaceFolder}/main.go",
           "args": [
             "--outbound",
-            "localhost:8081",
+            "localhost:25565",
             "--service-name",
-            "Emissary Outbound HTTP Server Test",
+            "EmissaryOutboundTest",
 
           ],
         }
