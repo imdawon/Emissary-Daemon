@@ -38,7 +38,7 @@ Emissary Outbound creates a tunnel between a service it can access and Drawbridg
 
 Your machines can now securely proxy out connections to local services to Drawbridge as a Protected Service.
 
-How to use
+### How to use
 
 Emissary Outbound is now a feature of the Emissary-Daemon client. It is enabled via passing two fields in the command line when launching Emissary:
 --outbound is the host and port for the service you want to allow access to via Drawbridge
