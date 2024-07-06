@@ -10,8 +10,8 @@
 
 ### Arguments
 ```
---outbound <host:port>: Enable Emissary Outbound Mode to host a locally accessible service e.g a Minecraft Server via Drawbridge.
---service-name <name>: Outbound service name as seen in Emissary and the Drawbridge Dashboard.
+(optional) --outbound <host:port>: Enable Emissary Outbound Mode to host a locally accessible service e.g a Minecraft Server via Drawbridge.
+(optional) --service-name <name>: Outbound service name as seen in Emissary and the Drawbridge Dashboard.
 ```
 
 
