@@ -49,9 +49,9 @@ func main() {
 		runOnboarding()
 	}
 
-	// A Drawbridge admin can create an "Emissary Bundle" which will contain certificate and drawbridge server info
+	// A Drawbridge admin should create an "Emissary Bundle" which will contain certificate and drawbridge server info
 	// to remove the need for a user to configure Emissary manually.
-	emissaryBundle := getDrawbridgeAddress()
+	emissaryBundle := getDrawbridgeNetworkAddress()
 
 	slog.Debug("Emissary is trying to read the Certificate file...")
 	if !utils.FileExists("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt") {
@@ -75,14 +75,14 @@ func main() {
 	}
 
 	slog.Debug("Emissary is trying to load Certificate and Key file for connecting to Drawbridge...")
-	// load tls configuration
+	// Load the TLS configuration from disk.
 	mTLSCertificatePath := utils.CreateEmissaryFileReadPath("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.crt")
 	mTLSKeyPath := utils.CreateEmissaryFileReadPath("./put_certificates_and_key_from_drawbridge_here/emissary-mtls-tcp.key")
 	cert, err := tls.LoadX509KeyPair(mTLSCertificatePath, mTLSKeyPath)
 	if err != nil {
 		utils.PrintFinalError("", err)
 	}
-	// Configure the client to trust TLS server certs issued by a CA.
+	// Configure the Emissary client to trust TLS server certs issued by the Drawbridge CA.
 	certPool, err := x509.SystemCertPool()
 	if err != nil {
 		utils.PrintFinalError("", err)
@@ -140,15 +140,15 @@ func main() {
 
 func runOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsConfig *tls.Config) error {
 	for {
-		// Connect to Drawbridge
-		drawbridgeConn, err := establishConnection(drawbridgeAddress, tlsConfig)
+		// Connect to Drawbridge.
+		drawbridgeConn, err := establishConnectionToDrawbridge(drawbridgeAddress, tlsConfig)
 		if err != nil {
 			slog.Error("Failed to connect to Drawbridge, retrying in 5 seconds", "error", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		// Register the service with Drawbridge
+		// Register the specified Emissary Outbound service with Drawbridge.
 		registerMsg := fmt.Sprintf("%s %s", OutboundConnectionCreate, serviceName)
 		if _, err := drawbridgeConn.Write([]byte(registerMsg)); err != nil {
 			slog.Error("Failed to register service with Drawbridge", "error", err)
@@ -156,7 +156,7 @@ func runOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsCo
 			continue
 		}
 
-		// Wait for acknowledgement
+		// Wait for message acknowledgement by Drawbridge server.
 		buf := make([]byte, 1024)
 		n, err := drawbridgeConn.Read(buf)
 		if err != nil || string(buf[:n]) != "ACK" {
@@ -167,18 +167,20 @@ func runOutboundProxy(localService, serviceName, drawbridgeAddress string, tlsCo
 
 		slog.Info("Registered outbound service", "service", serviceName, "localAddress", localService)
 
-		// Handle the connection
 		handleOutboundConnection(drawbridgeConn, localService)
 
-		// Close the Drawbridge connection after handling
+		// Close the Drawbridge connection after handling.
 		drawbridgeConn.Close()
 	}
 }
 
+// Note: This is referred to as the "Emissary Outbound" feature in the docs.
+// Handle proxying traffic from a locally running networked service and the Drawbridge server.
+// This exposes the locally running program to a Drawbridge server, without having to run Drawbridge on the same machine as Emissary.
 func handleOutboundConnection(drawbridgeConn net.Conn, localService string) {
 	defer drawbridgeConn.Close()
 
-	// Connect to the local service
+	// Connect to the local service we will expose as a Protected Service.
 	localConn, err := net.Dial("tcp", localService)
 	if err != nil {
 		slog.Error("Failed to connect to local service", "error", err)
@@ -190,6 +192,10 @@ func handleOutboundConnection(drawbridgeConn net.Conn, localService string) {
 
 	slog.Info("Connection closed")
 }
+
+// This function should be called when we detect that the Emissary Bundle files are missing e.g the
+// certificates and pubkey keypair from the put_certificates_and_keys_here folder created during onboarding or when
+// an admin creates an Emissary Bundle zip file for a user.
 func runOnboarding() {
 	fmt.Println("\n* * * * * * * * * * * *")
 	fmt.Println("  Welcome to Emissary!")
@@ -203,7 +209,7 @@ func runOnboarding() {
 // It doesn't _have_ to be a TCP call, but we don't need to overhead of HTTP for this, I don't think.
 // And at the end of the day we need to write to our connection to Drawbridge later with the name of the service we want to connect to.
 func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) []string {
-	conn, err := establishConnection(drawbridgeAddress, tlsConfig)
+	conn, err := establishConnectionToDrawbridge(drawbridgeAddress, tlsConfig)
 	if err != nil {
 		slog.Error("Drawbridge Connection Failed - Retrying in 5 seconds")
 		fiveSecondsFromNow := time.Until(time.Now().Add(time.Second * 5))
@@ -228,13 +234,12 @@ func getProtectedServiceNames(drawbridgeAddress string, tlsConfig *tls.Config) [
 	return serviceNames[:len(serviceNames)-1]
 }
 
-// Since we multiplex services over the only Drawbridge port, we need a way to tell Drawbridge which service we want to connect to.
+// Since we multiplex services over the single Drawbridge port, we need a way to tell Drawbridge which service we want to connect to.
 // We can do this by exposing a port locally for each service seperately, and when we connect to each proxy, we can use the
-// proxy port to ma to the service name, and request to connect to that service when we are talking to Drawbridge.
+// proxy port to map to the service name, and request to connect to that service when we are talking to Drawbridge.
 func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies map[string]net.Listener, drawbridgeAddress string, tlsConfig *tls.Config, port int) {
 	protectedServiceString = strings.TrimSpace(protectedServiceString)
 	// This is the id of the service in Drawbridge.
-	// It is used
 	portOffset, err := strconv.Atoi(protectedServiceString[1:3])
 	protectedServiceName := protectedServiceString[3:]
 	if err != nil {
@@ -263,6 +268,9 @@ func setUpLocalSeviceProxies(protectedServiceString string, localServiceProxies 
 	}
 }
 
+// This is the function that handles forwarding and receiving traffic to and from Drawbridge and another source.
+// This is used for both regular connections to Drawbridge Protected Services and when exposing a networked application running
+// on the same machine as Emissary; AKA the "Emissary Outbound" feature.
 func proxyData(dst net.Conn, src net.Conn) {
 	defer dst.Close()
 	defer src.Close()
@@ -291,10 +299,11 @@ func proxyData(dst net.Conn, src net.Conn) {
 	wg.Wait()
 }
 
+// Handle a regular (not Emissary Outbbound) connection between the Emissary client and the Drawbridge server.
 func handleConnection(clientConn net.Conn, drawbridgeAddress string, tlsConfig *tls.Config, protectedServiceString string) {
 	defer clientConn.Close()
 
-	drawbridgeConn, err := establishConnection(drawbridgeAddress, tlsConfig)
+	drawbridgeConn, err := establishConnectionToDrawbridge(drawbridgeAddress, tlsConfig)
 	if err != nil {
 		slog.Error("Failed to connect to Drawbridge", "error", err)
 		return
@@ -311,7 +320,8 @@ func handleConnection(clientConn net.Conn, drawbridgeAddress string, tlsConfig *
 
 	proxyData(drawbridgeConn, clientConn)
 }
-func establishConnection(drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
+
+func establishConnectionToDrawbridge(drawbridgeAddress string, tlsConfig *tls.Config) (net.Conn, error) {
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", drawbridgeAddress, tlsConfig)
 	if err != nil {
 		slog.Error("Failed connecting to Drawbridge mTLS TCP server", err)
@@ -322,7 +332,7 @@ func establishConnection(drawbridgeAddress string, tlsConfig *tls.Config) (net.C
 
 }
 
-func getDrawbridgeAddress() *string {
+func getDrawbridgeNetworkAddress() *string {
 	bundleBytes := utils.ReadFile("./bundle/drawbridge.txt")
 	if bundleBytes != nil {
 		bundleData := strings.TrimSpace(string(*bundleBytes))
